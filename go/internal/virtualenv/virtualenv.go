@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -81,7 +82,16 @@ func GetVirtualEnv(exe string) (VirtualEnv, error) {
 	// assume that our executable (`redbot-update`) resides in venv's scripts directory
 	venv.source = SourceExeDir
 	scriptsDir := path.Dir(exe)
-	venvDir := path.Dir(scriptsDir)
+	unresolvedVenvDir := path.Dir(scriptsDir)
+	venv.base = unresolvedVenvDir
+	venvDir, err := filepath.EvalSymlinks(unresolvedVenvDir)
+	if err != nil {
+		return venv, fmt.Errorf(
+			"Unexpected error occurred while trying to resolve symlinks for the venv dir (%v):\n%w",
+			unresolvedVenvDir,
+			err,
+		)
+	}
 	venv.base = venvDir
 	pyvenvCfgPath := venv.GetPyVenvConfigPath()
 
