@@ -1,13 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"path"
-	"strings"
 
 	"github.com/cog-creators/redbot-update-wrapper/go/internal/osutils"
 	"github.com/cog-creators/redbot-update-wrapper/go/internal/virtualenv"
@@ -20,34 +17,16 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	scriptsDir := path.Dir(exe)
-	venvDir := path.Dir(scriptsDir)
-	pyvenvCfgPath := path.Join(venvDir, "pyvenv.cfg")
 
-	file, err := os.Open(pyvenvCfgPath)
+	venv, err := virtualenv.GetVirtualEnv(exe)
 	if err != nil {
-		fmt.Printf("%v\n\nCould not open %v file, is this not a venv?\n", err, pyvenvCfgPath)
+		fmt.Printf("%v\n", err)
 		os.Exit(1)
 	}
-	defer file.Close()
 
-	pyvenvCfg := map[string]string{}
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		key, value, found := strings.Cut(scanner.Text(), "=")
-		if found {
-			pyvenvCfg[strings.TrimSpace(key)] = strings.TrimSpace(value)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		fmt.Printf("Unexpected error occurred while parsing the %v file:\n%v\n", err)
-		os.Exit(1)
-	}
-	file.Close()
-
-	pythonExe, err := virtualenv.GetPythonExecutable(venvDir)
+	pythonExe, err := venv.GetPythonExecutable()
 	if err != nil {
-		fmt.Printf("%v\n\nCould not find a Python executable for venv at %v\n", err, venvDir)
+		fmt.Printf("%v\n", err)
 		os.Exit(1)
 	}
 
