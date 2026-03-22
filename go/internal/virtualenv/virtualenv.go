@@ -3,6 +3,7 @@ package virtualenv
 import (
 	"bufio"
 	"fmt"
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
@@ -32,6 +33,13 @@ func (venv VirtualEnv) GetBase() string {
 
 func (venv VirtualEnv) GetSource() VirtualEnvSource {
 	return venv.source
+}
+
+func (venv VirtualEnv) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("base", venv.base),
+		slog.String("source", sourceName[venv.source]),
+	)
 }
 
 func (venv VirtualEnv) GetPythonExecutable() (string, error) {
