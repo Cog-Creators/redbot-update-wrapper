@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/signal"
+	"syscall"
 
 	"github.com/cog-creators/redbot-update-wrapper/go/internal/osutils"
 	"github.com/cog-creators/redbot-update-wrapper/go/internal/virtualenv"
@@ -29,6 +31,41 @@ func (v pidLogValue) LogValue() slog.Value {
 	}
 	v.pid = os.Getpid()
 	return slog.IntValue(v.pid)
+}
+
+type ProcessRunner struct {
+	waiter     chan error
+	currentCmd *exec.Cmd
+}
+
+func NewProcessRunner() *ProcessRunner {
+	waiter := make(chan error)
+	return &ProcessRunner{waiter: waiter}
+}
+
+func (r *ProcessRunner) Waiter() <-chan error {
+	return r.waiter
+}
+
+func (r *ProcessRunner) Start(pythonExe string) error {
+	args := append([]string{"-m", "redbot._update"}, os.Args[1:]...)
+	cmd := exec.Command(pythonExe, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	slog.Debug("Starting Python process", "args", args)
+	if err := cmd.Start(); err != nil {
+		slog.Debug("Failed to start Python process", "args", args, "error", err)
+		return err
+	}
+	r.currentCmd = cmd
+
+	go func() {
+		exitCode := cmd.Wait()
+		r.waiter <- exitCode
+	}()
+
+	return nil
 }
 
 func main() {
@@ -74,17 +111,37 @@ func main() {
 	}
 	slog.Debug("Found Python executable", "python_executable", pythonExe)
 
-	args := append([]string{"-m", "redbot._update"}, os.Args[1:]...)
-	cmd := exec.Command(pythonExe, args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		if exitError, ok := errors.AsType[*exec.ExitError](err); ok {
-			os.Exit(exitError.ExitCode())
-		} else {
-			fmt.Printf("Unexpected error occurred while running internal update command:\n%v\n", err)
-			os.Exit(1)
+	signalWaiter := make(chan os.Signal, 1)
+	signal.Notify(signalWaiter, os.Interrupt, syscall.SIGTERM)
+
+	runner := NewProcessRunner()
+	if err := runner.Start(pythonExe); err != nil {
+		fmt.Printf("Failed to start the process:\n%v\n", err)
+		os.Exit(1)
+	}
+	processWaiter := runner.Waiter()
+
+	for {
+		select {
+		case err := <-processWaiter:
+			if err != nil {
+				if exitError, ok := errors.AsType[*exec.ExitError](err); ok {
+					code := exitError.ExitCode()
+					slog.Debug("Python process exited", "exit_code", code)
+					os.Exit(code)
+				} else {
+					slog.Debug("Python process exited with an unexpected error", "error", err)
+					fmt.Printf("Unexpected error occurred while running internal update command:\n%v\n", err)
+					os.Exit(1)
+				}
+			}
+			slog.Debug("Python process exited", "exit_code", 0)
+			return
+		case s := <-signalWaiter:
+			slog.Debug("Received signal", "signal", s)
+			// We don't need to do anything when receiving the signal
+			// as it is automatically passed through to the child process
+			// due to it being in the same process group.
 		}
 	}
 }
