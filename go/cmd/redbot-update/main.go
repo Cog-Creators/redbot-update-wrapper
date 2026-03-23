@@ -16,12 +16,26 @@ const (
 
 	envVarNamePrefix   = "REDBOT_UPDATE_WRAPPER_"
 	LogDebugEnvVarName = envVarNamePrefix + "LOG_DEBUG"
+	LogFileEnvVarName  = envVarNamePrefix + "LOG_FILE"
 )
 
 func main() {
+	handlerOptions := &slog.HandlerOptions{}
 	if os.Getenv(LogDebugEnvVarName) == "1" {
-		slog.SetLogLoggerLevel(slog.LevelDebug)
+		handlerOptions.Level = slog.LevelDebug
 	}
+	handlers := []slog.Handler{slog.NewTextHandler(os.Stderr, handlerOptions)}
+
+	if filename := os.Getenv(LogFileEnvVarName); filename != "" {
+		logFile, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		if err != nil {
+			panic(err)
+		}
+		defer logFile.Close()
+		handlers = append(handlers, slog.NewTextHandler(logFile, handlerOptions))
+	}
+	logger := slog.New(slog.NewMultiHandler(handlers...))
+	slog.SetDefault(logger)
 
 	exe, err := osutils.GetExecutableWithPreservedSymlinks(DefaultProgramName)
 	if err != nil {
