@@ -11,11 +11,15 @@ import (
 	"github.com/cog-creators/redbot-update-wrapper/go/internal/virtualenv"
 )
 
-const DefaultProgramName = "redbot-update"
+const (
+	DefaultProgramName = "redbot-update"
+
+	envVarNamePrefix   = "REDBOT_UPDATE_WRAPPER_"
+	LogDebugEnvVarName = envVarNamePrefix + "LOG_DEBUG"
+)
 
 func main() {
-	debugEnvVar := os.Getenv("REDBOT_UPDATE_DEBUG")
-	if debugEnvVar == "1" {
+	if os.Getenv(LogDebugEnvVarName) == "1" {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 	}
 
