@@ -19,6 +19,18 @@ const (
 	LogFileEnvVarName  = envVarNamePrefix + "LOG_FILE"
 )
 
+type pidLogValue struct {
+	pid int
+}
+
+func (v pidLogValue) LogValue() slog.Value {
+	if v.pid != 0 {
+		return slog.IntValue(v.pid)
+	}
+	v.pid = os.Getpid()
+	return slog.IntValue(v.pid)
+}
+
 func main() {
 	handlerOptions := &slog.HandlerOptions{}
 	if os.Getenv(LogDebugEnvVarName) == "1" {
@@ -37,14 +49,18 @@ func main() {
 	logger := slog.New(slog.NewMultiHandler(handlers...))
 	slog.SetDefault(logger)
 
+	slog.Debug("redbot-update wrapper started", "pid", pidLogValue{})
+
 	exe, err := osutils.GetExecutableWithPreservedSymlinks(DefaultProgramName)
 	if err != nil {
+		slog.Debug("Failed to get executable", "error", err)
 		panic(err)
 	}
 	slog.Debug("Found executable", "executable", exe)
 
 	venv, err := virtualenv.GetVirtualEnv(exe)
 	if err != nil {
+		slog.Debug("Failed to get virtual environment", "error", err)
 		fmt.Printf("%v\n", err)
 		os.Exit(1)
 	}
@@ -52,6 +68,7 @@ func main() {
 
 	pythonExe, err := venv.GetPythonExecutable()
 	if err != nil {
+		slog.Debug("Failed to get Python executable", "error", err)
 		fmt.Printf("%v\n", err)
 		os.Exit(1)
 	}
