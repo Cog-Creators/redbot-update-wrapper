@@ -1,6 +1,7 @@
 package osutils
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,4 +51,65 @@ func GetExecutableWithPreservedSymlinks(defaultProgramName string) (string, erro
 		}
 	}
 	return "", os.ErrNotExist
+}
+
+func IsRegular(path string) (bool, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return false, err
+	}
+	return fi.Mode().IsRegular(), nil
+}
+
+func IsSymlink(path string) (bool, error) {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return false, err
+	}
+	return fi.Mode()&os.ModeSymlink != 0, nil
+}
+
+func CopyFile(src, dst string) error {
+	fsrc, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer fsrc.Close()
+
+	fi, err := fsrc.Stat()
+	if err != nil {
+		return err
+	}
+	dstMode := fi.Mode()
+
+	fdst, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL, dstMode)
+	if err != nil {
+		return err
+	}
+	defer fdst.Close()
+
+	if _, err := io.Copy(fdst, fsrc); err != nil {
+		return err
+	}
+	fdst.Close()
+
+	return os.Chmod(dst, dstMode)
+}
+
+func addPermissions(path string, perms os.FileMode) error {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+
+	return os.Chmod(path, fi.Mode()|perms)
+}
+
+func removePermissions(path string, perms os.FileMode) error {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+
+	return os.Chmod(path, fi.Mode()&^perms)
 }

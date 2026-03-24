@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path"
 	"syscall"
 
 	"github.com/cog-creators/redbot-update-wrapper/go/internal/osutils"
@@ -66,6 +67,52 @@ func (r *ProcessRunner) Start(pythonExe string) error {
 	return nil
 }
 
+func duplicateExe(exe string, venv virtualenv.VirtualEnv) string {
+	// `.tmp` suffix should prevent the file from being executable on Windows,
+	// while the chmod call should prevent it on Unix
+	newLocation := path.Join(venv.GetBase(), DefaultProgramName+".tmp")
+
+	slog.Debug("Moving executable", "newLocation", newLocation)
+	if err := os.Rename(exe, newLocation); err != nil {
+		slog.Debug("Failed to move executable", "newLocation", newLocation, "error", err)
+
+		fmt.Printf("%v\n\nFailed to move %v to %v.", err, exe, newLocation)
+		os.Exit(1)
+	}
+
+	slog.Debug("Copying executable", "newLocation", newLocation)
+	if copyErr := osutils.CopyFile(newLocation, exe); copyErr != nil {
+		slog.Debug("Failed to copy executable", "newLocation", newLocation, "error", copyErr)
+
+		if renameErr := os.Rename(newLocation, exe); renameErr != nil {
+			slog.Debug("Failed to revert executable move", "newLocation", newLocation, "error", renameErr)
+
+			err := fmt.Errorf("%w\n%w\nFailed to revert move", copyErr, renameErr)
+			fmt.Printf(
+				"%v\n\nFailed to copy %v to %v. Virtual environment is now broken"+
+					" as we could not revert the earlier move of redbot-update's executable.",
+				err, newLocation, exe,
+			)
+		} else {
+			slog.Debug("Reverted executable move", "newLocation", newLocation, "error", renameErr)
+
+			fmt.Printf("%v\n\nFailed to copy %v to %v.", copyErr, newLocation, exe)
+		}
+
+		os.Exit(1)
+	}
+
+	slog.Debug("Making executable non-executable", "newLocation", newLocation)
+	if err := osutils.RemovePermissions(newLocation, 0111); err != nil {
+		slog.Debug("Failed to make executable non-executable", "newLocation", newLocation, "error", err)
+
+		fmt.Printf("%v\n\nFailed to make executable at %v non-executable.", err, newLocation)
+		os.Exit(1)
+	}
+
+	return newLocation
+}
+
 func main() {
 	handlerOptions := &slog.HandlerOptions{}
 	if os.Getenv(LogDebugEnvVarName) == "1" {
@@ -111,6 +158,28 @@ func main() {
 
 	signalWaiter := make(chan os.Signal, 1)
 	signal.Notify(signalWaiter, os.Interrupt, syscall.SIGTERM)
+
+	isReg, err := osutils.IsRegular(exe)
+	if err != nil {
+		slog.Debug("Failed to stat executable", "error", err)
+		fmt.Printf("Failed to stat executable:\n%v\n", err)
+		os.Exit(1)
+	}
+	if isReg {
+		isLink, err := osutils.IsSymlink(exe)
+		if err != nil {
+			slog.Debug("Failed to lstat executable", "error", err)
+			fmt.Printf("Failed to lstat executable:\n%v\n", err)
+			os.Exit(1)
+		}
+		if !isLink {
+			// Since this is non-atomic, this has to be done after `signal.Notify()` call
+			// to minimize the chance of us getting rid of our executable forever
+			duplicateExe(exe, venv)
+			// Technically, this duplicated exe never gets deleted but a Go binary is
+			// just a few megabytes and Windows would not let you remove it anyway.
+		}
+	}
 
 	runner := NewProcessRunner()
 	if err := runner.Start(pythonExe); err != nil {

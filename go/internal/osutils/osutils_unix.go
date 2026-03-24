@@ -22,3 +22,11 @@ func IsExecutable(path string) bool {
 func GetRealExecutable() (string, error) {
 	return "", nil
 }
+
+func AddPermissions(path string, perms os.FileMode) error {
+	return addPermissions(path, perms)
+}
+
+func RemovePermissions(path string, perms os.FileMode) error {
+	return removePermissions(path, perms)
+}
