@@ -21,6 +21,18 @@ type RequestOutput interface {
 	SetRequestType(string)
 }
 
+type ExecRequestInput struct {
+	*RequestInput
+}
+
+type ExecRequestOutput struct {
+	RequestType string `json:"request_type"`
+}
+
+func (o *ExecRequestOutput) SetRequestType(v string) {
+	o.RequestType = v
+}
+
 type SpawnProcessRequestInput struct {
 	*RequestInput
 	Command string   `json:"command"`
@@ -86,6 +98,8 @@ func (r *ProcessRunner) handleRequest() error {
 
 	var output RequestOutput
 	switch input.RequestType {
+	case "exec":
+		output, err = r.handleExecRequest(data)
 	case "spawn_command":
 		output, err = r.handleSpawnCommandRequest(data)
 	default:
@@ -106,6 +120,10 @@ func (r *ProcessRunner) handleRequest() error {
 	r.pythonExe = input.RequestNewPythonExe
 	r.startArgs = input.RequestNewStartArgs
 	return r.Run()
+}
+
+func (r *ProcessRunner) handleExecRequest(data []byte) (*ExecRequestOutput, error) {
+	return &ExecRequestOutput{}, nil
 }
 
 func (r *ProcessRunner) handleSpawnCommandRequest(data []byte) (*SpawnProcessRequestOutput, error) {
