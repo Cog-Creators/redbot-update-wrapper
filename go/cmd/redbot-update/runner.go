@@ -196,8 +196,10 @@ func (r *ProcessRunner) Start() error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(), "REDBOT_UPDATE_RUNNER_WRAPPER_EXE="+r.wrapperExe)
-	cmd.Env = append(os.Environ(), "REDBOT_UPDATE_RUNNER_DIR="+r.runnerDir)
+	cmd.Env = append(os.Environ(),
+		"REDBOT_UPDATE_RUNNER_WRAPPER_EXE="+r.wrapperExe,
+		"REDBOT_UPDATE_RUNNER_DIR="+r.runnerDir,
+	)
 	log.Debug("Starting Python process", "args", r.startArgs)
 	if err := cmd.Start(); err != nil {
 		log.Debug("Failed to start Python process", "args", r.startArgs, "error", err)
