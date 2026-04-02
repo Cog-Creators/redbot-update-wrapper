@@ -154,13 +154,13 @@ func main() {
 		if !isLink {
 			// Since this is non-atomic, this has to be done after `signal.Notify()` call
 			// to minimize the chance of us getting rid of our executable forever
-			duplicateExe(exe, venv)
+			exe = duplicateExe(exe, venv)
 			// Technically, this duplicated exe never gets deleted but a Go binary is
 			// just a few megabytes and Windows would not let you remove it anyway.
 		}
 	}
 
-	runner := NewProcessRunner(pythonExe)
+	runner := NewProcessRunner(exe, pythonExe)
 	if err := runner.Start(); err != nil {
 		fmt.Printf("Failed to start the process:\n%v\n", err)
 		os.Exit(1)
