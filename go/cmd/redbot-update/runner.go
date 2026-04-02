@@ -1,0 +1,206 @@
+package main
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"time"
+)
+
+type RequestInput struct {
+	RequestType         string   `json:"request_type"`
+	RequestNewPythonExe string   `json:"request_new_python_exe"`
+	RequestNewStartArgs []string `json:"request_new_start_args"`
+}
+
+type RequestOutput interface {
+	SetRequestType(string)
+}
+
+type SpawnProcessRequestInput struct {
+	*RequestInput
+	Command string   `json:"command"`
+	Args    []string `json:"args"`
+}
+
+type SpawnProcessRequestOutput struct {
+	RequestType string `json:"request_type"`
+	ExitCode    int    `json:"exit_code"`
+	Exited      bool   `json:"exited"`
+	Pid         int    `json:"pid"`
+	// these don't seem likely to be useful, especially since they're system specific
+	// but might as well include them...
+	Sys        any           `json:"sys"`
+	SysUsage   any           `json:"sys_usage"`
+	SystemTime time.Duration `json:"system_time"`
+	UserTime   time.Duration `json:"user_time"`
+}
+
+func (o *SpawnProcessRequestOutput) SetRequestType(v string) {
+	o.RequestType = v
+}
+
+type ProcessRunner struct {
+	currentCmd *exec.Cmd
+	runnerDir  string
+	pythonExe  string
+	startArgs  []string
+}
+
+func NewProcessRunner(pythonExe string) *ProcessRunner {
+	return &ProcessRunner{
+		pythonExe: pythonExe,
+		startArgs: append([]string{"-m", "redbot._update"}, os.Args[1:]...),
+	}
+}
+
+func (r *ProcessRunner) Close() error {
+	if r.runnerDir != "" {
+		return os.RemoveAll(r.runnerDir)
+	}
+	r.runnerDir = ""
+	return nil
+}
+
+func (r *ProcessRunner) handleRequest() error {
+	slog.Debug("Received a runner request")
+
+	filename := filepath.Join(r.runnerDir, "request_input.json")
+	log := slog.With("input_file", filename)
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		log.Debug("Failed to open request input file")
+		return err
+	}
+
+	var input RequestInput
+	if err = json.Unmarshal(data, &input); err != nil {
+		log.Debug("Failed to parse request input file")
+		return err
+	}
+	slog.Debug("Parsed request input", "request", input)
+
+	var output RequestOutput
+	switch input.RequestType {
+	case "spawn_command":
+		output, err = r.handleSpawnCommandRequest(data)
+	default:
+		err = fmt.Errorf("Received invalid request type: %s", input.RequestType)
+	}
+	if err != nil {
+		return err
+	}
+	output.SetRequestType(input.RequestType)
+
+	if err := r.makeNewRunnerDir(); err != nil {
+		return err
+	}
+	if err := r.writeRequestOutput(output); err != nil {
+		return err
+	}
+
+	r.pythonExe = input.RequestNewPythonExe
+	r.startArgs = input.RequestNewStartArgs
+	return r.Run()
+}
+
+func (r *ProcessRunner) handleSpawnCommandRequest(data []byte) (*SpawnProcessRequestOutput, error) {
+	var input SpawnProcessRequestInput
+	if err := json.Unmarshal(data, &input); err != nil {
+		slog.Debug("Failed to parse spawn command request input")
+		return nil, err
+	}
+	slog.Debug("Parsed spawn command request input", "request", input)
+
+	cmd := exec.Command(input.Command, input.Args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	slog.Debug("Running command", "command", input.Command, "args", input.Args)
+	if err := cmd.Run(); err != nil {
+		slog.Debug("Spawned command returned an error", "err", err)
+		if _, ok := errors.AsType[*exec.ExitError](err); !ok {
+			return nil, err
+		}
+	}
+	output := &SpawnProcessRequestOutput{
+		ExitCode:   cmd.ProcessState.ExitCode(),
+		Exited:     cmd.ProcessState.Exited(),
+		Pid:        cmd.ProcessState.Pid(),
+		Sys:        cmd.ProcessState.Sys(),
+		SysUsage:   cmd.ProcessState.SysUsage(),
+		SystemTime: cmd.ProcessState.SystemTime(),
+		UserTime:   cmd.ProcessState.UserTime(),
+	}
+	return output, nil
+}
+
+func (r *ProcessRunner) writeRequestOutput(v any) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		slog.Debug("Failed to serialize request output", "output", v)
+		return err
+	}
+	filename := filepath.Join(r.runnerDir, "request_output.json")
+	if err := os.WriteFile(filename, data, 0600); err != nil {
+		slog.Debug("Failed to save request output", "output_file", filename)
+		return err
+	}
+	return nil
+}
+
+func (r *ProcessRunner) makeNewRunnerDir() error {
+	slog.Debug("Making new temporary runner dir")
+	runnerDir, err := os.MkdirTemp("", "redbot-update-*")
+	if err != nil {
+		return err
+	}
+	r.runnerDir = runnerDir
+	slog.Debug("Created new temporary runner dir", "runner_dir", r.runnerDir)
+	return nil
+}
+
+func (r *ProcessRunner) Start() error {
+	if r.runnerDir == "" {
+		if err := r.makeNewRunnerDir(); err != nil {
+			return err
+		}
+	}
+	log := slog.With("runner_dir", r.runnerDir)
+
+	cmd := exec.Command(r.pythonExe, r.startArgs...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(), "REDBOT_UPDATE_RUNNER_DIR="+r.runnerDir)
+	log.Debug("Starting Python process", "args", r.startArgs)
+	if err := cmd.Start(); err != nil {
+		log.Debug("Failed to start Python process", "args", r.startArgs, "error", err)
+		return err
+	}
+	r.currentCmd = cmd
+
+	return nil
+}
+
+func (r *ProcessRunner) Wait() error {
+	cmdErr := r.currentCmd.Wait()
+	if exitError, ok := errors.AsType[*exec.ExitError](cmdErr); ok {
+		exitCode := exitError.ExitCode()
+		if exitCode == HandleRequestExitCode {
+			return r.handleRequest()
+		}
+	}
+	return cmdErr
+}
+
+func (r *ProcessRunner) Run() error {
+	if err := r.Start(); err != nil {
+		return err
+	}
+	return r.Wait()
+}
