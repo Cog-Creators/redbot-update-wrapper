@@ -37,7 +37,11 @@ packages = ["python/redbot_update"]
 
 [dependency-groups]
 dev = [
+    # needed for type checking of hatch_build.py
+    "hatchling>=1.27.0",
+    # lint tools
     "ruff>=0.15.7",
+    "ty>=0.0.28",
 ]
 
 [tool.uv]
