@@ -24,7 +24,7 @@ class GoVersion:
             raise ValueError("unexpected version number")
         self.major = int(match["major"])
         self.minor = int(match["minor"])
-        self.rev = int(match["rev"])
+        self.rev = int(match["rev"]) if match["rev"] else 0
         self.extra = match["extra"]
 
     def __str__(self) -> str:
@@ -94,18 +94,18 @@ def _get_go_mod() -> str:
 def _get_system_go() -> Union[Tuple[None, None], Tuple[str, GoVersion]]:
     bin_path = shutil.which("go")
     if bin_path is None:
-        return None
+        return None, None
     try:
         version_output = subprocess.check_output((bin_path, "version"), encoding="utf-8")
     except subprocess.CalledProcessError:
-        return None
+        return None, None
     match = _GO_VERSION_CMD_RE.match(version_output)
     if match is None:
-        return None
+        return None, None
     try:
         go_version = GoVersion(match.group(1))
     except ValueError:
-        return None
+        return None, None
     return bin_path, go_version
 
 
