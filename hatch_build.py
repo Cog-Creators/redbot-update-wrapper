@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 import sysconfig
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
@@ -87,7 +87,7 @@ class GoMod:
             return cls(fp.read())
 
 
-def _get_go_mod() -> str:
+def _get_go_mod() -> GoMod:
     return GoMod.from_file("go.mod")
 
 
@@ -113,6 +113,7 @@ def _get_go_bin_args(*, prefer_system: bool = True) -> Tuple[str, ...]:
     if prefer_system:
         system_go_bin, system_go_version = _get_system_go()
         if system_go_version is not None and system_go_version >= _TOOLCHAIN_SUPPORTED_SINCE:
+            assert system_go_bin is not None
             return (system_go_bin,)
 
     return (sys.executable, "-m", "go")
@@ -131,13 +132,13 @@ class GoTarget:
     def from_env(cls) -> Optional[GoTarget]:
         goos = os.getenv("GOOS")
         goarch = os.getenv("GOARCH")
-        if (not goos and goarch) or (goos and not goarch):
+        if goos and goarch:
+            return cls(goos, goarch)
+        if goos or goarch:
             raise RuntimeError(
                 "You can either specify both GOOS and GOARCH or specify neither."
                 " Partially defined target is not supported."
             )
-        if goos:
-            return cls(goos, goarch)
         return None
 
 
