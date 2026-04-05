@@ -72,12 +72,16 @@ func NewProcessRunner(wrapperExe, pythonExe string) *ProcessRunner {
 	}
 }
 
-func (r *ProcessRunner) Close() error {
+func (r *ProcessRunner) cleanupRunnerDir() error {
 	if r.runnerDir != "" {
 		return os.RemoveAll(r.runnerDir)
 	}
 	r.runnerDir = ""
 	return nil
+}
+
+func (r *ProcessRunner) Close() error {
+	return r.cleanupRunnerDir()
 }
 
 func (r *ProcessRunner) handleRequest() error {
@@ -174,6 +178,9 @@ func (r *ProcessRunner) writeRequestOutput(v any) error {
 }
 
 func (r *ProcessRunner) makeNewRunnerDir() error {
+	if err := r.cleanupRunnerDir(); err != nil {
+		return err
+	}
 	slog.Debug("Making new temporary runner dir")
 	runnerDir, err := os.MkdirTemp("", "redbot-update-*")
 	if err != nil {
@@ -217,6 +224,9 @@ func (r *ProcessRunner) Wait() error {
 		if exitCode == HandleRequestExitCode {
 			return r.handleRequest()
 		}
+	}
+	if cmdErr == nil {
+		return r.Close()
 	}
 	return cmdErr
 }
