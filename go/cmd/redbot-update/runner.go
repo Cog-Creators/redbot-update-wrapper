@@ -12,9 +12,10 @@ import (
 )
 
 type RequestInput struct {
-	RequestType         string   `json:"request_type"`
-	RequestNewPythonExe string   `json:"request_new_python_exe"`
-	RequestNewStartArgs []string `json:"request_new_start_args"`
+	RequestType         string             `json:"request_type"`
+	RequestNewPythonExe string             `json:"request_new_python_exe"`
+	RequestNewStartArgs []string           `json:"request_new_start_args"`
+	RequestSetEnvVars   map[string]*string `json:"request_set_env_vars"`
 }
 
 type RequestOutput interface {
@@ -35,8 +36,9 @@ func (o *ExecRequestOutput) SetRequestType(v string) {
 
 type SpawnProcessRequestInput struct {
 	*RequestInput
-	Command string   `json:"command"`
-	Args    []string `json:"args"`
+	Command string            `json:"command"`
+	Args    []string          `json:"args"`
+	Env     map[string]string `json:"env"`
 }
 
 type SpawnProcessRequestOutput struct {
@@ -102,6 +104,18 @@ func (r *ProcessRunner) handleRequest() error {
 	}
 	slog.Debug("Parsed request input", "request", input)
 
+	for k, v := range input.RequestSetEnvVars {
+		if v == nil {
+			err = os.Unsetenv(k)
+		} else {
+			err = os.Setenv(k, *v)
+		}
+		if err != nil {
+			log.Debug("Failed to set env var", "env_var_name", k, "env_var_value", v)
+			return err
+		}
+	}
+
 	var output RequestOutput
 	switch input.RequestType {
 	case "exec":
@@ -144,6 +158,14 @@ func (r *ProcessRunner) handleSpawnCommandRequest(data []byte) (*SpawnProcessReq
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	if input.Env != nil {
+		env := []string{}
+		for k, v := range input.Env {
+			env = append(env, fmt.Sprintf("%v=%v", k, v))
+		}
+		cmd.Env = env
+	}
+
 	slog.Debug("Running command", "command", input.Command, "args", input.Args)
 	if err := cmd.Run(); err != nil {
 		slog.Debug("Spawned command returned an error", "err", err)
