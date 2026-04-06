@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
+
+	"github.com/cog-creators/redbot-update-wrapper/go/internal/logutils"
 )
 
 type RequestInput struct {
@@ -102,7 +104,7 @@ func (r *ProcessRunner) handleRequest() error {
 		log.Debug("Failed to parse request input file")
 		return err
 	}
-	slog.Debug("Parsed request input", "request", input)
+	slog.Debug("Parsed request input", "request", logutils.NewStructLogValue(&input))
 
 	for k, v := range input.RequestSetEnvVars {
 		if v == nil {
