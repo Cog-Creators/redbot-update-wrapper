@@ -3,3 +3,4 @@ dist/
 /.venvs
 /.venv
 /redbot-update
+*.exe
